@@ -2,7 +2,6 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import hashlib
 import json
 import os
 from datetime import datetime, timedelta
@@ -15,12 +14,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# Fungsi hash password
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-# Password yang sudah di-hash (password: "digital")
-CORRECT_HASH = "71f58daf5db7a0a89fc2344e5e1aa9a7b6a311cf3d3e2b0b28cbd51b6b8a9c8c"
+# Password untuk CRUD operations (plain text)
+CRUD_PASSWORD = "digital"
 
 # Fungsi untuk load/save data
 def load_data():
@@ -47,23 +42,32 @@ def save_data(members, events):
     with open('events.json', 'w') as f:
         json.dump(events, f)
 
-# Authentication
-def check_password():
-    if 'authenticated' not in st.session_state:
-        st.session_state.authenticated = False
+# Fungsi untuk check CRUD access
+def check_crud_access():
+    if 'crud_authenticated' not in st.session_state:
+        st.session_state.crud_authenticated = False
+    return st.session_state.crud_authenticated
+
+# Fungsi untuk login CRUD
+def crud_login():
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔐 Akses CRUD")
     
-    if not st.session_state.authenticated:
-        st.title("🔐 Login - Digital Secretary Calendar")
-        password = st.text_input("Password", type="password")
-        
-        if st.button("Login"):
-            if hash_password(password) == CORRECT_HASH:
-                st.session_state.authenticated = True
+    if not check_crud_access():
+        password = st.sidebar.text_input("Password CRUD:", type="password", key="crud_password")
+        if st.sidebar.button("Login CRUD"):
+            if password == CRUD_PASSWORD:
+                st.session_state.crud_authenticated = True
                 st.rerun()
             else:
-                st.error("Password salah!")
+                st.sidebar.error("Password CRUD salah!")
         return False
-    return True
+    else:
+        st.sidebar.success("✅ CRUD Access Granted")
+        if st.sidebar.button("🚪 Logout CRUD"):
+            st.session_state.crud_authenticated = False
+            st.rerun()
+        return True
 
 # Fungsi untuk tampilan kalender
 def display_calendar(events, selected_member=None, year=None, month=None):
@@ -146,8 +150,15 @@ def display_calendar(events, selected_member=None, year=None, month=None):
                         st.session_state.selected_date = date_str
                         st.session_state.show_event_detail = True
 
-# Fungsi untuk manajemen member
+# Fungsi untuk manajemen member (HANYA dengan akses CRUD)
 def manage_members(members):
+    if not check_crud_access():
+        st.warning("🔐 Akses CRUD diperlukan untuk mengelola member")
+        if st.button("Login untuk Akses CRUD"):
+            st.session_state.show_crud_login = True
+            st.rerun()
+        return members
+    
     st.header("👥 Manajemen Member")
     
     col1, col2 = st.columns(2)
@@ -185,9 +196,18 @@ def manage_members(members):
                         st.rerun()
         else:
             st.info("Belum ada member yang terdaftar")
+    
+    return members
 
-# Fungsi untuk manajemen event
+# Fungsi untuk manajemen event (HANYA dengan akses CRUD)
 def manage_events(events, members):
+    if not check_crud_access():
+        st.warning("🔐 Akses CRUD diperlukan untuk mengelola agenda")
+        if st.button("Login untuk Akses CRUD"):
+            st.session_state.show_crud_login = True
+            st.rerun()
+        return events
+    
     st.header("📅 Manajemen Agenda")
     
     # Form tambah event
@@ -196,14 +216,14 @@ def manage_events(events, members):
             col1, col2 = st.columns(2)
             
             with col1:
-                event_title = st.text_input("Judul Agenda")
-                event_date = st.date_input("Tanggal", datetime.now())
-                event_time = st.time_input("Waktu", datetime.now().time())
+                event_title = st.text_input("Judul Agenda*")
+                event_date = st.date_input("Tanggal*", datetime.now())
+                event_time = st.time_input("Waktu*", datetime.now().time())
             
             with col2:
                 # Multi-select untuk members
                 member_names = [member['name'] for member in members]
-                selected_members = st.multiselect("Pilih Members", member_names)
+                selected_members = st.multiselect("Pilih Members*", member_names)
                 event_description = st.text_area("Deskripsi")
             
             if st.form_submit_button("Simpan Agenda"):
@@ -222,7 +242,7 @@ def manage_events(events, members):
                     st.success("Agenda berhasil ditambahkan!")
                     st.rerun()
                 else:
-                    st.error("Judul dan members harus diisi!")
+                    st.error("Field dengan tanda * harus diisi!")
     
     # Daftar event
     st.subheader("Daftar Agenda")
@@ -241,8 +261,10 @@ def manage_events(events, members):
                         st.rerun()
     else:
         st.info("Belum ada agenda yang terdaftar")
+    
+    return events
 
-# Fungsi untuk menampilkan detail event per hari
+# Fungsi untuk menampilkan detail event per hari (PUBLIC ACCESS)
 def show_day_events(events, selected_member=None):
     if 'selected_date' in st.session_state and st.session_state.show_event_detail:
         selected_date = st.session_state.selected_date
@@ -265,10 +287,12 @@ def show_day_events(events, selected_member=None):
                         st.write(f"**Members:** {', '.join(event['members'])}")
                         st.write(f"**Deskripsi:** {event['description']}")
                     with col2:
-                        if st.button("Hapus", key=f"del_{event['id']}"):
-                            events.remove(event)
-                            save_data(st.session_state.members, events)
-                            st.rerun()
+                        # Hanya tampilkan tombol hapus jika ada akses CRUD
+                        if check_crud_access():
+                            if st.button("Hapus", key=f"del_{event['id']}"):
+                                events.remove(event)
+                                save_data(st.session_state.members, events)
+                                st.rerun()
         else:
             st.info("Tidak ada agenda untuk hari ini")
         
@@ -276,10 +300,9 @@ def show_day_events(events, selected_member=None):
             st.session_state.show_event_detail = False
             st.rerun()
 
-# Main application
-def main():
-    if not check_password():
-        return
+# Fungsi untuk view public (tanpa password)
+def public_view():
+    st.sidebar.info("👁️ Mode View Public")
     
     # Load data
     if 'members' not in st.session_state or 'events' not in st.session_state:
@@ -302,12 +325,13 @@ def main():
     member_names = ["Semua"] + [member['name'] for member in st.session_state.members]
     selected_member = st.sidebar.selectbox("Filter by Member:", member_names)
     
-    # Menu navigasi
-    menu = st.sidebar.radio("Menu:", ["📅 Kalender", "👥 Kelola Member", "📝 Kelola Agenda"])
+    # Menu navigasi (hanya view untuk public)
+    menu = st.sidebar.radio("Menu:", ["📅 Kalender View", "👥 Daftar Member", "📝 Daftar Agenda"])
     
     # Main content
-    if menu == "📅 Kalender":
-        st.header("📅 Digital Secretary Calendar")
+    if menu == "📅 Kalender View":
+        st.header("📅 Digital Secretary Calendar - Public View")
+        st.info("Ini adalah tampilan publik. Login untuk edit data.")
         
         # Tampilkan kalender
         display_calendar(
@@ -320,17 +344,92 @@ def main():
         # Tampilkan detail event jika ada tanggal yang dipilih
         show_day_events(st.session_state.events, selected_member)
     
-    elif menu == "👥 Kelola Member":
-        manage_members(st.session_state.members)
+    elif menu == "👥 Daftar Member":
+        st.header("👥 Daftar Member")
+        st.info("Ini adalah tampilan publik. Login untuk edit data.")
+        
+        if st.session_state.members:
+            for member in st.session_state.members:
+                st.write(f"**{member['name']}** - {member['email']}")
+        else:
+            st.info("Belum ada member yang terdaftar")
     
-    elif menu == "📝 Kelola Agenda":
-        manage_events(st.session_state.events, st.session_state.members)
+    elif menu == "📝 Daftar Agenda":
+        st.header("📝 Daftar Agenda")
+        st.info("Ini adalah tampilan publik. Login untuk edit data.")
+        
+        if st.session_state.events:
+            for event in st.session_state.events:
+                with st.expander(f"📅 {event['title']} - {event['date']} {event['time']}"):
+                    st.write(f"**Tanggal:** {event['date']} {event['time']}")
+                    st.write(f"**Members:** {', '.join(event['members'])}")
+                    st.write(f"**Deskripsi:** {event['description']}")
+        else:
+            st.info("Belum ada agenda yang terdaftar")
+
+# Main application
+def main():
+    # Load data pertama kali
+    if 'members' not in st.session_state or 'events' not in st.session_state:
+        members, events = load_data()
+        st.session_state.members = members
+        st.session_state.events = events
     
-    # Logout button
-    st.sidebar.markdown("---")
-    if st.sidebar.button("🚪 Logout"):
-        st.session_state.authenticated = False
-        st.rerun()
+    # Initialize session state
+    if 'show_crud_login' not in st.session_state:
+        st.session_state.show_crud_login = False
+    
+    # Check jika user ingin CRUD access
+    has_crud_access = crud_login()
+    
+    if has_crud_access:
+        # Tampilan dengan akses CRUD penuh
+        st.sidebar.success("🎯 Mode CRUD Active")
+        
+        # Initialize session state variables untuk CRUD mode
+        if 'calendar_month' not in st.session_state:
+            st.session_state.calendar_month = datetime.now().month
+        if 'calendar_year' not in st.session_state:
+            st.session_state.calendar_year = datetime.now().year
+        if 'show_event_detail' not in st.session_state:
+            st.session_state.show_event_detail = False
+        
+        # Sidebar navigation untuk CRUD mode
+        st.sidebar.title("🎯 Navigasi CRUD")
+        
+        # Filter member
+        member_names = ["Semua"] + [member['name'] for member in st.session_state.members]
+        selected_member = st.sidebar.selectbox("Filter by Member:", member_names, key="crud_filter")
+        
+        # Menu navigasi CRUD
+        menu = st.sidebar.radio("Menu CRUD:", ["📅 Kalender", "👥 Kelola Member", "📝 Kelola Agenda"], key="crud_menu")
+        
+        # Main content untuk CRUD mode
+        if menu == "📅 Kalender":
+            st.header("📅 Digital Secretary Calendar - CRUD Mode")
+            
+            # Tampilkan kalender
+            display_calendar(
+                st.session_state.events, 
+                selected_member,
+                st.session_state.calendar_year,
+                st.session_state.calendar_month
+            )
+            
+            # Tampilkan detail event jika ada tanggal yang dipilih
+            show_day_events(st.session_state.events, selected_member)
+        
+        elif menu == "👥 Kelola Member":
+            updated_members = manage_members(st.session_state.members)
+            st.session_state.members = updated_members
+        
+        elif menu == "📝 Kelola Agenda":
+            updated_events = manage_events(st.session_state.events, st.session_state.members)
+            st.session_state.events = updated_events
+    
+    else:
+        # Tampilan public (tanpa akses CRUD)
+        public_view()
 
 if __name__ == "__main__":
     main()
