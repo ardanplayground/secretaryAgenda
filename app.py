@@ -4,6 +4,7 @@ import pandas as pd
 import datetime
 import json
 import os
+import re
 from datetime import datetime, timedelta
 import calendar
 
@@ -69,6 +70,53 @@ def crud_login():
             st.rerun()
         return True
 
+# Fungsi untuk convert URL ke link HTML
+def convert_urls_to_links(text):
+    if not text:
+        return text
+    
+    # Pattern untuk mendeteksi URL
+    url_pattern = r'https?://[^\s]+'
+    
+    def replace_url(match):
+        url = match.group(0)
+        return f'<a href="{url}" target="_blank" style="color: blue; text-decoration: underline;">{url}</a>'
+    
+    # Replace URLs dengan link HTML
+    text_with_links = re.sub(url_pattern, replace_url, text)
+    
+    return text_with_links
+
+# Fungsi untuk parse tanggal dari format Indonesia
+def parse_indonesian_date(date_str):
+    try:
+        # Format: dd-mm-yyyy
+        day, month, year = map(int, date_str.split('-'))
+        return datetime(year, month, day)
+    except:
+        return None
+
+# Fungsi untuk format tanggal ke Indonesia
+def format_indonesian_date(date_obj):
+    return date_obj.strftime("%d-%m-%Y")
+
+# Fungsi untuk validasi waktu
+def validate_time(time_str):
+    try:
+        # Format: HH:MM atau HH:MM:SS
+        parts = time_str.split(':')
+        if len(parts) == 2:
+            hours, minutes = map(int, parts)
+            seconds = 0
+        elif len(parts) == 3:
+            hours, minutes, seconds = map(int, parts)
+        else:
+            return False
+        
+        return 0 <= hours <= 23 and 0 <= minutes <= 59 and 0 <= seconds <= 59
+    except:
+        return False
+
 # Fungsi untuk tampilan kalender
 def display_calendar(events, selected_member=None, year=None, month=None):
     if year is None:
@@ -119,34 +167,32 @@ def display_calendar(events, selected_member=None, year=None, month=None):
             with cols[i]:
                 if day != 0:
                     current_date = datetime(year, month, day)
-                    date_str = current_date.strftime("%Y-%m-%d")
+                    date_str = format_indonesian_date(current_date)
                     
                     # Filter events untuk hari ini
                     day_events = []
                     for event in events:
-                        event_date = datetime.strptime(event['date'], "%Y-%m-%d").date()
-                        if event_date == current_date.date():
-                            if selected_member is None or selected_member == "Semua" or selected_member in event['members']:
-                                day_events.append(event)
+                        try:
+                            event_date = parse_indonesian_date(event['date'])
+                            if event_date and event_date.date() == current_date.date():
+                                if selected_member is None or selected_member == "Semua" or selected_member in event['members']:
+                                    day_events.append(event)
+                        except:
+                            continue
                     
-                    # Tampilkan hari dengan event indicator
+                    # Tampilkan tanggal dengan indicator jumlah event
+                    day_display = f"**{day}**"
+                    
+                    # Tambah badge dengan jumlah event jika ada
                     if day_events:
-                        st.markdown(f"<div style='background-color: #e6f3ff; padding: 5px; border-radius: 5px;'>"
-                                  f"<strong>{day}</strong></div>", unsafe_allow_html=True)
-                        
-                        # Tampilkan event preview
-                        for event in day_events[:2]:  # Max 2 event preview
-                            members_str = ", ".join(event['members'])
-                            st.caption(f"📅 {event['title'][:15]}...")
-                            st.caption(f"👥 {members_str[:10]}...")
-                        
-                        if len(day_events) > 2:
-                            st.caption(f"+{len(day_events)-2} more")
-                    else:
-                        st.write(f"**{day}**")
+                        badge_color = "#ff4b4b" if len(day_events) > 3 else "#1f77b4"
+                        badge_text = f"<span style='background-color: {badge_color}; color: white; border-radius: 50%; padding: 2px 6px; font-size: 0.8em; margin-left: 5px;'>{len(day_events)}</span>"
+                        day_display = f"**{day}** {badge_text}"
+                    
+                    st.markdown(day_display, unsafe_allow_html=True)
                     
                     # Click handler untuk detail event
-                    if st.button(f"Detail", key=f"detail_{date_str}", use_container_width=True):
+                    if st.button(f"📅 Detail", key=f"detail_{date_str}", use_container_width=True):
                         st.session_state.selected_date = date_str
                         st.session_state.show_event_detail = True
 
@@ -166,30 +212,28 @@ def manage_members(members):
     with col1:
         st.subheader("Tambah Member Baru")
         with st.form("add_member"):
-            new_member_name = st.text_input("Nama Member")
-            new_member_email = st.text_input("Email Member")
+            new_member_name = st.text_input("Nama Member*")
             if st.form_submit_button("Tambah Member"):
                 if new_member_name:
                     member_id = len(members) + 1
                     members.append({
                         'id': member_id,
-                        'name': new_member_name,
-                        'email': new_member_email
+                        'name': new_member_name
                     })
                     save_data(members, st.session_state.events)
                     st.success(f"Member {new_member_name} berhasil ditambahkan!")
                     st.rerun()
+                else:
+                    st.error("Nama member harus diisi!")
     
     with col2:
         st.subheader("Daftar Member")
         if members:
             for member in members:
-                col_a, col_b, col_c = st.columns([3, 2, 1])
+                col_a, col_b = st.columns([4, 1])
                 with col_a:
                     st.write(f"**{member['name']}**")
                 with col_b:
-                    st.write(member['email'])
-                with col_c:
                     if st.button("Hapus", key=f"del_member_{member['id']}"):
                         members = [m for m in members if m['id'] != member['id']]
                         save_data(members, st.session_state.events)
@@ -198,6 +242,75 @@ def manage_members(members):
             st.info("Belum ada member yang terdaftar")
     
     return members
+
+# Fungsi untuk input waktu manual
+def time_input_with_manual(label, value=None):
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # Input manual
+        time_str = st.text_input(
+            f"{label} (HH:MM atau HH:MM:SS)", 
+            value=value.strftime("%H:%M") if value else "09:00",
+            help="Format: HH:MM atau HH:MM:SS, contoh: 14:30 atau 14:30:00"
+        )
+    
+    with col2:
+        # Quick pick buttons
+        st.write("Cepat:")
+        quick_cols = st.columns(3)
+        with quick_cols[0]:
+            if st.button("09:00", key=f"quick_9_{label}"):
+                time_str = "09:00"
+        with quick_cols[1]:
+            if st.button("13:00", key=f"quick_13_{label}"):
+                time_str = "13:00"
+        with quick_cols[2]:
+            if st.button("16:00", key=f"quick_16_{label}"):
+                time_str = "16:00"
+    
+    # Validasi waktu
+    if time_str and validate_time(time_str):
+        return time_str
+    elif time_str:
+        st.error("Format waktu tidak valid. Gunakan HH:MM atau HH:MM:SS")
+        return None
+    else:
+        return None
+
+# Fungsi untuk input tanggal Indonesia
+def date_input_indonesia(label, value=None):
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # Input manual format Indonesia
+        date_str = st.text_input(
+            f"{label} (DD-MM-YYYY)", 
+            value=format_indonesian_date(value) if value else format_indonesian_date(datetime.now()),
+            help="Format: DD-MM-YYYY, contoh: 25-12-2024"
+        )
+    
+    with col2:
+        # Quick pick untuk tanggal
+        st.write("Cepat:")
+        quick_cols = st.columns(2)
+        with quick_cols[0]:
+            if st.button("Hari ini", key=f"today_{label}"):
+                date_str = format_indonesian_date(datetime.now())
+        with quick_cols[1]:
+            if st.button("Besok", key=f"tomorrow_{label}"):
+                date_str = format_indonesian_date(datetime.now() + timedelta(days=1))
+    
+    # Parse tanggal
+    if date_str:
+        parsed_date = parse_indonesian_date(date_str)
+        if parsed_date:
+            return parsed_date
+        else:
+            st.error("Format tanggal tidak valid. Gunakan DD-MM-YYYY")
+            return None
+    else:
+        return None
 
 # Fungsi untuk manajemen event (HANYA dengan akses CRUD)
 def manage_events(events, members):
@@ -217,23 +330,27 @@ def manage_events(events, members):
             
             with col1:
                 event_title = st.text_input("Judul Agenda*")
-                event_date = st.date_input("Tanggal*", datetime.now())
-                event_time = st.time_input("Waktu*", datetime.now().time())
+                
+                # Input tanggal format Indonesia
+                event_date = date_input_indonesia("Tanggal*", datetime.now())
+                
+                # Input waktu manual
+                event_time = time_input_with_manual("Waktu*", datetime.now())
             
             with col2:
                 # Multi-select untuk members
                 member_names = [member['name'] for member in members]
                 selected_members = st.multiselect("Pilih Members*", member_names)
-                event_description = st.text_area("Deskripsi")
+                event_description = st.text_area("Deskripsi (bisa berisi link)")
             
             if st.form_submit_button("Simpan Agenda"):
-                if event_title and selected_members:
+                if event_title and selected_members and event_date and event_time:
                     event_id = len(events) + 1
                     new_event = {
                         'id': event_id,
                         'title': event_title,
-                        'date': event_date.strftime("%Y-%m-%d"),
-                        'time': event_time.strftime("%H:%M"),
+                        'date': format_indonesian_date(event_date),
+                        'time': event_time,
                         'members': selected_members,
                         'description': event_description
                     }
@@ -242,18 +359,34 @@ def manage_events(events, members):
                     st.success("Agenda berhasil ditambahkan!")
                     st.rerun()
                 else:
-                    st.error("Field dengan tanda * harus diisi!")
+                    st.error("Field dengan tanda * harus diisi dengan format yang benar!")
     
     # Daftar event
     st.subheader("Daftar Agenda")
     if events:
-        for event in events:
+        # Urutkan events berdasarkan tanggal
+        def get_event_date(event):
+            try:
+                return parse_indonesian_date(event['date'])
+            except:
+                return datetime.min
+        
+        sorted_events = sorted(events, key=get_event_date)
+        
+        for event in sorted_events:
             with st.expander(f"📅 {event['title']} - {event['date']} {event['time']}"):
                 col1, col2 = st.columns([3, 1])
                 with col1:
-                    st.write(f"**Tanggal:** {event['date']} {event['time']}")
+                    st.write(f"**Tanggal:** {event['date']}")
+                    st.write(f"**Waktu:** {event['time']}")
                     st.write(f"**Members:** {', '.join(event['members'])}")
-                    st.write(f"**Deskripsi:** {event['description']}")
+                    
+                    # Tampilkan deskripsi dengan link yang bisa diklik
+                    if event['description']:
+                        description_with_links = convert_urls_to_links(event['description'])
+                        st.write(f"**Deskripsi:**")
+                        st.markdown(description_with_links, unsafe_allow_html=True)
+                
                 with col2:
                     if st.button("Hapus", key=f"del_event_{event['id']}"):
                         events = [e for e in events if e['id'] != event['id']]
@@ -271,13 +404,27 @@ def show_day_events(events, selected_member=None):
         st.header(f"📅 Agenda untuk {selected_date}")
         
         # Filter events untuk tanggal yang dipilih
-        day_events = [e for e in events if e['date'] == selected_date]
-        
-        if selected_member and selected_member != "Semua":
-            day_events = [e for e in day_events if selected_member in e['members']]
+        day_events = []
+        for event in events:
+            try:
+                if event['date'] == selected_date:
+                    if selected_member is None or selected_member == "Semua" or selected_member in event['members']:
+                        day_events.append(event)
+            except:
+                continue
         
         if day_events:
-            for event in day_events:
+            # Urutkan berdasarkan waktu
+            def get_event_time(event):
+                try:
+                    time_parts = list(map(int, event['time'].split(':')))
+                    return time_parts[0] * 3600 + time_parts[1] * 60 + (time_parts[2] if len(time_parts) > 2 else 0)
+                except:
+                    return 0
+            
+            sorted_day_events = sorted(day_events, key=get_event_time)
+            
+            for event in sorted_day_events:
                 with st.container():
                     st.markdown("---")
                     col1, col2 = st.columns([3, 1])
@@ -285,7 +432,13 @@ def show_day_events(events, selected_member=None):
                         st.subheader(event['title'])
                         st.write(f"**Waktu:** {event['time']}")
                         st.write(f"**Members:** {', '.join(event['members'])}")
-                        st.write(f"**Deskripsi:** {event['description']}")
+                        
+                        # Tampilkan deskripsi dengan link yang bisa diklik
+                        if event['description']:
+                            description_with_links = convert_urls_to_links(event['description'])
+                            st.write(f"**Deskripsi:**")
+                            st.markdown(description_with_links, unsafe_allow_html=True)
+                    
                     with col2:
                         # Hanya tampilkan tombol hapus jika ada akses CRUD
                         if check_crud_access():
@@ -330,8 +483,7 @@ def public_view():
     
     # Main content
     if menu == "📅 Kalender View":
-        st.header("📅 Digital Secretary Calendar - Public View")
-        st.info("Ini adalah tampilan publik. Login untuk edit data.")
+        st.header("📅 Digital Secretary Calendar")
         
         # Tampilkan kalender
         display_calendar(
@@ -346,24 +498,37 @@ def public_view():
     
     elif menu == "👥 Daftar Member":
         st.header("👥 Daftar Member")
-        st.info("Ini adalah tampilan publik. Login untuk edit data.")
         
         if st.session_state.members:
             for member in st.session_state.members:
-                st.write(f"**{member['name']}** - {member['email']}")
+                st.write(f"• **{member['name']}**")
         else:
             st.info("Belum ada member yang terdaftar")
     
     elif menu == "📝 Daftar Agenda":
         st.header("📝 Daftar Agenda")
-        st.info("Ini adalah tampilan publik. Login untuk edit data.")
         
         if st.session_state.events:
-            for event in st.session_state.events:
+            # Urutkan events berdasarkan tanggal
+            def get_event_date(event):
+                try:
+                    return parse_indonesian_date(event['date'])
+                except:
+                    return datetime.min
+            
+            sorted_events = sorted(st.session_state.events, key=get_event_date)
+            
+            for event in sorted_events:
                 with st.expander(f"📅 {event['title']} - {event['date']} {event['time']}"):
-                    st.write(f"**Tanggal:** {event['date']} {event['time']}")
+                    st.write(f"**Tanggal:** {event['date']}")
+                    st.write(f"**Waktu:** {event['time']}")
                     st.write(f"**Members:** {', '.join(event['members'])}")
-                    st.write(f"**Deskripsi:** {event['description']}")
+                    
+                    # Tampilkan deskripsi dengan link yang bisa diklik
+                    if event['description']:
+                        description_with_links = convert_urls_to_links(event['description'])
+                        st.write(f"**Deskripsi:**")
+                        st.markdown(description_with_links, unsafe_allow_html=True)
         else:
             st.info("Belum ada agenda yang terdaftar")
 
