@@ -117,6 +117,17 @@ def validate_time(time_str):
     except:
         return False
 
+# Fungsi untuk sorting events by date yang aman
+def safe_sort_events(events):
+    def get_event_date(event):
+        try:
+            return parse_indonesian_date(event['date'])
+        except:
+            # Return tanggal sangat lama untuk event yang tidak valid
+            return datetime(1900, 1, 1)
+    
+    return sorted(events, key=get_event_date)
+
 # Fungsi untuk tampilan kalender
 def display_calendar(events, selected_member=None, year=None, month=None):
     if year is None:
@@ -249,9 +260,10 @@ def time_input_with_manual(label, value=None):
     
     with col1:
         # Input manual
+        default_time = value.strftime("%H:%M") if value else "09:00"
         time_str = st.text_input(
             f"{label} (HH:MM atau HH:MM:SS)", 
-            value=value.strftime("%H:%M") if value else "09:00",
+            value=default_time,
             help="Format: HH:MM atau HH:MM:SS, contoh: 14:30 atau 14:30:00"
         )
     
@@ -284,9 +296,10 @@ def date_input_indonesia(label, value=None):
     
     with col1:
         # Input manual format Indonesia
+        default_date = format_indonesian_date(value) if value else format_indonesian_date(datetime.now())
         date_str = st.text_input(
             f"{label} (DD-MM-YYYY)", 
-            value=format_indonesian_date(value) if value else format_indonesian_date(datetime.now()),
+            value=default_date,
             help="Format: DD-MM-YYYY, contoh: 25-12-2024"
         )
     
@@ -364,14 +377,8 @@ def manage_events(events, members):
     # Daftar event
     st.subheader("Daftar Agenda")
     if events:
-        # Urutkan events berdasarkan tanggal
-        def get_event_date(event):
-            try:
-                return parse_indonesian_date(event['date'])
-            except:
-                return datetime.min
-        
-        sorted_events = sorted(events, key=get_event_date)
+        # Urutkan events menggunakan fungsi safe sort
+        sorted_events = safe_sort_events(events)
         
         for event in sorted_events:
             with st.expander(f"📅 {event['title']} - {event['date']} {event['time']}"):
@@ -414,7 +421,7 @@ def show_day_events(events, selected_member=None):
                 continue
         
         if day_events:
-            # Urutkan berdasarkan waktu
+            # Urutkan berdasarkan waktu dengan error handling
             def get_event_time(event):
                 try:
                     time_parts = list(map(int, event['time'].split(':')))
@@ -509,14 +516,8 @@ def public_view():
         st.header("📝 Daftar Agenda")
         
         if st.session_state.events:
-            # Urutkan events berdasarkan tanggal
-            def get_event_date(event):
-                try:
-                    return parse_indonesian_date(event['date'])
-                except:
-                    return datetime.min
-            
-            sorted_events = sorted(st.session_state.events, key=get_event_date)
+            # Urutkan events menggunakan fungsi safe sort
+            sorted_events = safe_sort_events(st.session_state.events)
             
             for event in sorted_events:
                 with st.expander(f"📅 {event['title']} - {event['date']} {event['time']}"):
