@@ -128,7 +128,7 @@ def safe_sort_events(events):
     
     return sorted(events, key=get_event_date)
 
-# Fungsi untuk tampilan kalender
+# Fungsi untuk tampilan kalender dengan highlight tanggal sekarang
 def display_calendar(events, selected_member=None, year=None, month=None):
     if year is None:
         year = datetime.now().year
@@ -171,6 +171,9 @@ def display_calendar(events, selected_member=None, year=None, month=None):
     for i, day in enumerate(days):
         cols[i].write(f"**{day}**")
     
+    # Dapatkan tanggal hari ini
+    today = datetime.now().date()
+    
     # Isi kalender
     for week in cal:
         cols = st.columns(7)
@@ -179,6 +182,7 @@ def display_calendar(events, selected_member=None, year=None, month=None):
                 if day != 0:
                     current_date = datetime(year, month, day)
                     date_str = format_indonesian_date(current_date)
+                    is_today = current_date.date() == today
                     
                     # Filter events untuk hari ini
                     day_events = []
@@ -191,14 +195,18 @@ def display_calendar(events, selected_member=None, year=None, month=None):
                         except:
                             continue
                     
-                    # Tampilkan tanggal dengan indicator jumlah event
-                    day_display = f"**{day}**"
+                    # Tampilkan tanggal dengan styling berbeda untuk hari ini
+                    if is_today:
+                        # Highlight untuk hari ini - background kuning
+                        day_display = f"<div style='background-color: #FFF9C4; padding: 8px; border-radius: 8px; border: 2px solid #FFD600; text-align: center;'><strong>{day}</strong></div>"
+                    else:
+                        day_display = f"<div style='padding: 8px; text-align: center;'><strong>{day}</strong></div>"
                     
                     # Tambah badge dengan jumlah event jika ada
                     if day_events:
                         badge_color = "#ff4b4b" if len(day_events) > 3 else "#1f77b4"
                         badge_text = f"<span style='background-color: {badge_color}; color: white; border-radius: 50%; padding: 2px 6px; font-size: 0.8em; margin-left: 5px;'>{len(day_events)}</span>"
-                        day_display = f"**{day}** {badge_text}"
+                        day_display = day_display.replace("</div>", f" {badge_text}</div>")
                     
                     st.markdown(day_display, unsafe_allow_html=True)
                     
@@ -206,6 +214,8 @@ def display_calendar(events, selected_member=None, year=None, month=None):
                     if st.button(f"📅 Detail", key=f"detail_{date_str}", use_container_width=True):
                         st.session_state.selected_date = date_str
                         st.session_state.show_event_detail = True
+
+# ... (Fungsi-fungsi lainnya tetap sama seperti sebelumnya: manage_members, time_input_with_manual, date_input_indonesia, manage_events, show_day_events, public_view, main)
 
 # Fungsi untuk manajemen member (HANYA dengan akses CRUD)
 def manage_members(members):
